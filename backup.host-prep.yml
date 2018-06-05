@@ -1,0 +1,116 @@
+---
+- hosts: all
+  tasks:
+  - name: register redhat license
+    redhat_subscription: 
+      state: present
+      username: nick.sciarrilli@nokia.com
+      password: Trestles14!
+      pool_ids: 8a85f98c624e9e66016252a59c6d1bfb
+
+  - name: disable all repos
+    rhsm_repository:
+      name: '*'
+      state: disabled
+
+  - name: enable repos for openshift
+    rhsm_repository: name={{item}} state=present
+    with_items: 
+      - rhel-7-server-rpms
+      - rhel-7-server-extras-rpms
+      - rhel-7-server-ose-3.7-rpms
+      - rhel-7-fast-datapath-rpms
+
+  - name: install base packages
+    yum: name={{item}} state=present
+    with_items:
+      - wget
+      - git
+      - net-tools
+      - bind-utils
+      - yum-utils
+      - iptables-services
+      - bridge-utils
+      - bash-completion
+      - kexec-tools
+      - sos
+      - psacct  
+      - vim
+
+  - name: yum update
+    yum: name=* state=latest
+
+#  - name: rebooting
+#    command: shutdown -r +1
+#    async: 0
+#    poll: 0
+#    ignore_errors: true
+
+#  - name: wait for reboot
+#    pause: minutes=5
+
+  - name: install atomic openshift utils
+    yum: name=atomic-openshift-utils state=present
+
+  - name: install excluders
+    yum: name={{item}} state=present
+    with_items:
+     - atomic-openshift-excluder
+     - atomic-openshift-docker-excluder
+
+  - name: unexclude openshift
+    command: atomic-openshift-excluder unexclude
+
+  - name: install docker
+    yum: name=docker-1.12.6 state=present
+
+  - name: make docker is not running
+    service: name=docker state=stopped
+
+  - name: add insecure docker subnet
+    copy: src=docker dest=/etc/sysconfig/docker
+
+  - name: update docker storage file
+    copy: src=docker-storage-setup dest=/etc/sysconfig/docker-storage-setup
+
+  - name: run docker storage setup
+    command: docker-storage-setup
+
+  - name: start docker
+    service: name=docker state=started 
+
+  - name: systemctl enable docker
+    systemd: 
+      name: docker
+      enabled: yes
+
+- hosts: masters
+  tasks:
+  - name: generate ssh key
+    user: 
+      name: root
+      generate_ssh_key: yes
+      ssh_key_bits: 2048
+      ssh_key_file: .ssh/id_rsa
+
+  - name: grab ssh public key
+    fetch:
+      src: /root/.ssh/id_rsa.pub
+      dest: files/id_rsa.pub.{{ inventory_hostname }}
+      flat: yes
+
+- hosts: all
+  gather_facts: no
+  tasks:
+  - name: add ssh key
+    authorized_key:
+      user: root
+      state: present
+      key: '{{ item }}'
+    with_file:
+      - files/id_rsa.pub.master1.nuagecloud.io
+      - files/id_rsa.pub.master2.nuagecloud.io
+      - files/id_rsa.pub.master3.nuagecloud.io
+
+
+

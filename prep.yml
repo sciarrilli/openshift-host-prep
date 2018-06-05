@@ -1,0 +1,163 @@
+---
+- hosts: all
+  tasks:
+  - name: register redhat license
+    redhat_subscription: 
+      state: present
+      username: << username >>
+      password: << password >>
+      pool_ids: << red hat pool id >>
+      force_register: true
+
+  - name: disable all repos
+    rhsm_repository:
+      name: '*'
+      state: disabled
+
+  - name: update /etc/hosts file
+    copy: src=files/hosts dest=/etc/hosts
+
+  - name: enable repos for openshift
+    rhsm_repository: name={{item}} state=present
+    with_items: 
+      - rhel-7-server-rpms
+      - rhel-7-server-extras-rpms
+      - rhel-7-server-ose-3.7-rpms
+      - rhel-7-fast-datapath-rpms
+
+  - name: install base packages
+    yum: name={{item}} state=present
+    with_items:
+      - wget
+      - git
+      - net-tools
+      - bind-utils
+      - yum-utils
+      - iptables-services
+      - bridge-utils
+      - bash-completion
+      - kexec-tools
+      - sos
+      - psacct  
+      - vim
+
+  - name: yum update
+    yum: name=* state=latest
+
+  - name: rebooting
+    command: shutdown -r +1
+    async: 0
+    poll: 0
+    ignore_errors: true
+
+  - name: wait for reboot
+    pause: minutes=5
+
+  - name: install atomic openshift utils
+    yum: name=atomic-openshift-utils state=present
+
+  - name: install excluders
+    yum: name={{item}} state=present
+    with_items:
+     - atomic-openshift-excluder
+     - atomic-openshift-docker-excluder
+
+  - name: unexclude openshift
+    command: atomic-openshift-excluder unexclude
+
+  - name: install docker
+    yum: name=docker-1.12.6 state=present
+
+  - name: make docker is not running
+    service: name=docker state=stopped
+
+  - name: add insecure docker subnet
+    copy: src=docker dest=/etc/sysconfig/docker
+
+  - name: update docker storage file
+    copy: src=docker-storage-setup dest=/etc/sysconfig/docker-storage-setup
+
+  - name: run docker storage setup
+    command: docker-storage-setup
+
+  - name: start docker
+    service: name=docker state=started 
+
+  - name: systemctl enable docker
+    systemd: 
+      name: docker
+      enabled: yes
+
+# generate ssh keys on masters
+- hosts: masters
+  tasks:
+  - name: generate ssh key
+    user: 
+      name: root
+      generate_ssh_key: yes
+      ssh_key_bits: 2048
+      ssh_key_file: .ssh/id_rsa
+
+  - name: grab ssh public key
+    fetch:
+      src: /root/.ssh/id_rsa.pub
+      dest: files/id_rsa.pub.{{ inventory_hostname }}
+      flat: yes
+
+# push master ssh keys to all machines
+- hosts: all
+  gather_facts: no
+  tasks:
+  - name: add ssh key
+    authorized_key:
+      user: root
+      state: present
+      key: '{{ item }}'
+    with_file:
+      - files/id_rsa.pub.master1.nuagecloud.io
+      - files/id_rsa.pub.master2.nuagecloud.io
+      - files/id_rsa.pub.master3.nuagecloud.io
+
+
+# create directory, transfer tarball and unarchive
+  - name: create nuage directory
+    file: path=/root/nuage state=directory
+
+  - name: copy nuage tarball
+    copy: src=/root/Nuage-openshift-5.2.2-16.tar.gz dest=/root/Nuage-openshift-5.2.2-16.tar.gz   
+
+  - name: unarchive nuage files
+    unarchive:
+      src: /root/Nuage-openshift-5.2.2-16.tar.gz
+      dest: /root/nuage
+      remote_src: yes
+
+# load nuage docker images
+  - name: load nuage cni image
+    command: docker load -i /root/nuage/nuage-cni-docker-5.2.2-16.tar
+
+  - name: load nuage vrs image
+    command: docker load -i /root/nuage/nuage-vrs-docker-5.2.2-25.tar
+
+  - name: load nuage infra image
+    command: docker load -i /root/nuage/nuage-infra-docker-5.2.2-16.tar
+
+# load nuage monitor docker images on masters
+- hosts: masters
+  tasks:
+  - name: load nuage master image
+    command: docker load -i /root/nuage/nuage-master-docker-5.2.2-16.tar
+
+
+# quick reload kung fu to make sure everything settles
+- hosts: all
+  gather_facts: no
+  tasks:
+  - name: rebooting
+    command: shutdown -r +1
+    async: 0
+    poll: 0
+    ignore_errors: true
+
+  - name: wait for reboot
+    pause: minutes=5

@@ -1,0 +1,6 @@
+---
+- hosts: all
+  tasks:
+  - name: register redhat license
+    redhat_subscription:
+      state: absent

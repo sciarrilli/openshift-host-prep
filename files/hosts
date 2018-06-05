@@ -1,0 +1,11 @@
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+10.0.50.50  lb.nuagecloud.io  lb
+10.0.50.51  master1.nuagecloud.io  master1
+10.0.50.52  master2.naugecloud.io  master2
+10.0.50.53  master3.nuagecloud.io  master3
+10.0.50.54  node1.nuagecloud.io  node1
+10.0.50.55  node2.nuagecloud.io  node2
+10.0.50.56  infra-node1.nuagecloud.io  infra-node1
+10.0.50.57  infra-node2.nuagecloud.io  infra-node2
